@@ -1,18 +1,16 @@
-import warnings
+import os
+import requests
 from fastapi import FastAPI
 from pydantic import BaseModel
-from transformers import pipeline
 
-# Suppress FutureWarnings and HF download warnings
-warnings.filterwarnings("ignore", category=FutureWarning)
-
-# Candidate hazard labels
+# Candidate hazard labels (same as your original code)
 HAZARD_LABELS = ["Flood", "Tsunami", "High Waves", "Cyclone", "Noise"]
 
-app = FastAPI(title="Hazard Tweet Classifier API")
+# Hugging Face model
+HF_MODEL = "joeddav/xlm-roberta-large-xnli"
+HF_TOKEN = os.environ.get("HF_TOKEN")  # keep token secret
 
-# Model placeholder
-classifier = None
+app = FastAPI(title="Hazard Tweet Classifier API")
 
 class TweetRequest(BaseModel):
     tweet: str
@@ -20,22 +18,6 @@ class TweetRequest(BaseModel):
 class TweetResponse(BaseModel):
     labels: list[str]
     scores: list[float]
-
-def get_classifier():
-    global classifier
-    if classifier is None:
-        # Initialize pipeline with slow tokenizer to avoid SentencePiece issues
-        classifier = pipeline(
-            "zero-shot-classification",
-            model="joeddav/xlm-roberta-large-xnli",
-            device=-1,       # CPU only
-            tokenizer="joeddav/xlm-roberta-large-xnli",  # ensures slow tokenizer
-            framework="pt"   # PyTorch backend
-        )
-    return classifier
-@app.on_event("startup")
-def load_model():
-    get_classifier()
 
 @app.get("/")
 def root():
@@ -45,7 +27,23 @@ def root():
 def classify(req: TweetRequest):
     if not req.tweet.strip():
         return {"labels": [], "scores": []}
-    
-    clf = get_classifier()
-    result = clf(req.tweet, candidate_labels=HAZARD_LABELS)
-    return {"labels": result["labels"], "scores": result["scores"]}
+
+    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+    payload = {
+        "inputs": req.tweet,
+        "parameters": {"candidate_labels": HAZARD_LABELS}
+    }
+
+    response = requests.post(
+        f"https://api-inference.huggingface.co/models/{HF_MODEL}",
+        headers=headers,
+        json=payload
+    )
+
+    data = response.json()
+
+    # Handle HF API errors
+    if "error" in data:
+        return {"labels": [], "scores": []}
+
+    return {"labels": data["labels"], "scores": data["scores"]}
