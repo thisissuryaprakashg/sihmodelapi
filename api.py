@@ -33,6 +33,13 @@ def get_classifier():
             framework="pt"   # PyTorch backend
         )
     return classifier
+@app.on_event("startup")
+def load_model():
+    get_classifier()
+
+@app.get("/")
+def root():
+    return {"status": "ok"}
 
 @app.post("/classify", response_model=TweetResponse)
 def classify(req: TweetRequest):
